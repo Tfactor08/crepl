@@ -52,6 +52,8 @@ int main(int argc, char **argv)
 
             // exclude newln char
             input[strlen(input)-1] = '\0';
+            // TODO
+            // here, we assume the symbol is of type char*, but that is not always the case
             char *var = tcc_get_symbol(tcc, input);
             printf("%s\n", var);
             continue;
