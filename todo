@@ -3,4 +3,5 @@ add features:
     --- define new symbols;
         --- variables
         --- functions
-    --- handle and ouptut errors in input code.
+    --- handle and ouptut errors in input code;
+    --- print experssions without calling printf.
