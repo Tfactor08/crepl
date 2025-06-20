@@ -1,7 +1,7 @@
 add features:
-    --- perform calls of existing functions;
-    --- define new symbols;
+    --- define new symbols:
         --- variables
         --- functions
+    --- perform calls of existing functions;
     --- handle and ouptut errors in input code;
     --- print experssions without calling printf.
