@@ -1,9 +1,10 @@
 #include <stdio.h>
 
-const char hello[] = "fuck\n";
-
 int main()
 {
-    char *s = "ur mom";
-    printf("" "\n");
+    char *f = "%s %s\n";
+    char *s;
+    sprintf(s, f, "ur");
+
+    printf(s);
 }
