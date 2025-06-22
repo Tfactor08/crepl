@@ -12,7 +12,6 @@ int is_symbol_being_created(char*);
 char skel[] =
 "#include <tcclib.h>\n"
 "\n"
-"char msg[] = \"ur mom\";\n"
 "%s"
 "\n"
 "int main()\n"
@@ -21,6 +20,7 @@ char skel[] =
 ""
 "    return 0;\n"
 "}";
+char program[300];
 
 void handle_error(void *opaque, const char *msg)
 {
@@ -43,10 +43,21 @@ void init_tcc(TCCState **tcc)
     tcc_set_output_type(*tcc, TCC_OUTPUT_MEMORY);
 }
 
-int compile_program(TCCState *tcc, char *stmt)
+int compile_program(TCCState *tcc, char *symbols, char *stmt)
 {
-    char program[300];
+    // TODO
+    // not sure how to properly check for an empty string
+    if (strcmp(symbols, "") != 0) {
+        char tmp[200];
+        strcat(symbols, "%s"); // for future symbols
+        sprintf(tmp, skel, symbols, "%s");
+        strcpy(skel, tmp);
+
+        puts(skel);
+    }
+
     sprintf(program, skel, "", stmt);
+
     if (tcc_compile_string(tcc, program) == -1)
         return 1;
     if (tcc_relocate(tcc) < 0)
@@ -54,6 +65,11 @@ int compile_program(TCCState *tcc, char *stmt)
     return 0;
 }
 
+// TODO
+// started implemntation of new symbols definition feature:
+// for now, only string symbols can be handled properly.
+// also, error containing code can be included into 'skel',
+// so that also needs to be handled
 int main(int argc, char **argv)
 {
     TCCState *tcc;
@@ -61,12 +77,12 @@ int main(int argc, char **argv)
     int (*inner_main)();
 
     init_tcc(&tcc);
-    compile_program(tcc, "");
+    compile_program(tcc, "", "");
 
     while (1) {
+        prompt();
         // TODO
         // factor out
-        prompt();
         fgets(input, sizeof(input), stdin);
         if (strcmp(input, "bye\n") == 0)
             break;
@@ -87,15 +103,17 @@ int main(int argc, char **argv)
             continue;
         }
 
-        // TODO
-        // check if user aims to create a new symbol
         else if (is_symbol_being_created(input)) {
-            printf("fuck\n");
+            init_tcc(&tcc);
+            compile_program(tcc, input, "");
+
+            puts(program);
+
             continue;
         }
 
         init_tcc(&tcc);
-        compile_program(tcc, input);
+        compile_program(tcc, "", input);
 
         inner_main = tcc_get_symbol(tcc, "main");
         if (!inner_main)
