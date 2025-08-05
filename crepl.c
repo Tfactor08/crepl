@@ -3,11 +3,25 @@
 #include <string.h>
 #include "libtcc.h"
 
+#define OUT
+
 #define false 0
 #define true  1
 
 int is_symbol_requested(char*);
 int is_symbol_being_created(char*);
+int derive_type(char*, OUT char[]);
+void derive_name(char*, char*, OUT char*);
+
+typedef struct {
+    char name[100];
+    char type[50];
+} Symbol;
+
+char *symbol_types[] = {"int", "char*"}; // pointer types must be declared exactly like this
+size_t symbols_cnt = 0;
+char program[300];
+Symbol symbols[100];
 
 char skel[] =
 "#include <tcclib.h>\n"
@@ -20,7 +34,6 @@ char skel[] =
 ""
 "    return 0;\n"
 "}";
-char program[300];
 
 void handle_error(void *opaque, const char *msg)
 {
@@ -43,19 +56,44 @@ void init_tcc(TCCState **tcc)
     tcc_set_output_type(*tcc, TCC_OUTPUT_MEMORY);
 }
 
-int compile_program(TCCState *tcc, char *symbols, char *stmt)
+void register_symbol(char name[], char type[])
+{
+    symbols[symbols_cnt] = (Symbol){0};
+
+    strncpy(symbols[symbols_cnt].name, name, strlen(name));
+    symbols[symbols_cnt].name[strlen(name)] = '\0';
+
+    strncpy(symbols[symbols_cnt].type, type, strlen(type));
+    symbols[symbols_cnt].type[strlen(type)] = '\0';
+
+    symbols_cnt++;
+}
+
+int get_symbol_type(char *name, OUT char **type)
 {
     // TODO
-    // not sure how to properly check for an empty string
-    if (strcmp(symbols, "") != 0) {
-        char tmp[200];
-        strcat(symbols, "%s"); // for future symbols
-        sprintf(tmp, skel, symbols, "%s");
-        strcpy(skel, tmp);
+    // we definitely need some sort of a map here
+    for (int i = 0; i < symbols_cnt; i++) {
+        if (strcmp(symbols[i].name, name) == 0) {
+            *type = symbols[i].type;
+            return 1;
+        }
+    }
+    return -1;
+}
 
-        puts(skel);
+// symbol -- add new symbol to the top of the program, or leave empty;
+// stmt   -- statement to be executed.
+int compile_program(TCCState *tcc, char *symbol, char *stmt)
+{
+    if (strcmp(symbol, "")) {
+        char tmp[200];
+        strcat(symbol, "%s"); // for future symbols
+        sprintf(tmp, skel, symbol, "%s");
+        strcpy(skel, tmp);
     }
 
+    // maybe "%s" istead of ""?
     sprintf(program, skel, "", stmt);
 
     if (tcc_compile_string(tcc, program) == -1)
@@ -66,12 +104,22 @@ int compile_program(TCCState *tcc, char *symbols, char *stmt)
 }
 
 // TODO
-// started implemntation of new symbols definition feature:
+// 1) started implementation of new symbols definition feature:
 // for now, only string symbols can be handled properly.
-// also, error containing code can be included into 'skel',
+// 2) error containing code can be included into 'skel',
 // so that also needs to be handled
 int main(int argc, char **argv)
 {
+    // TODO
+    // yet another weird stuff: in derive_type, the sizeof func with found type string passed works in an unexpected way
+    // UPD: the issue was due to the using sizeof instead of strlen...
+    /* register_symbol("var", "int"); */
+    /* printf("name: %s, type: %s\n", symbols[symbols_cnt-1].name, symbols[symbols_cnt-1].type); */
+    /* char type[50]; */
+    /* derive_type("char* a = 69;", type); */
+    /* printf("%s\n", type); */
+    /* return 0; */
+
     TCCState *tcc;
     char input[100];
     int (*inner_main)();
@@ -87,27 +135,40 @@ int main(int argc, char **argv)
         if (strcmp(input, "bye\n") == 0)
             break;
 
+        // TODO: refactor so that new vars stored in the main func
         // check if user asks for an existing symbol
         if (is_symbol_requested(input)) {
-            // exclude newln char
-            input[strlen(input)-1] = '\0';
+            input[strlen(input)-1] = '\0'; // exclude newln char
+                                           
             // TODO
-            // here, we assume the symbol is of type char*, but that is not always the case
-            // (the symbol may even be a function)
-            char *var = tcc_get_symbol(tcc, input);
-            if (!var) {
+            // well, might there be a better way to do this?
+            char *type;
+            if (get_symbol_type(input, &type) == -1) {
                 printf("ERROR: %s not found\n", input);
                 continue;
             }
-            printf("%s\n", var);
+            if (strcmp(type, "char*") == 0) {
+                char **var = tcc_get_symbol(tcc, input);
+                printf("%s\n", *var);
+            }
+            else if (strcmp(type, "int") == 0) {
+                int *var = tcc_get_symbol(tcc, input);
+                printf("%d\n", *var);
+            }
             continue;
         }
 
-        else if (is_symbol_being_created(input)) {
+        if (is_symbol_being_created(input)) {
+            char type[20];
+            char name[50];
+
+            derive_type(input, type);
+            derive_name(input, type, name);
+
+            register_symbol(name, type);
+
             init_tcc(&tcc);
             compile_program(tcc, input, "");
-
-            puts(program);
 
             continue;
         }
@@ -141,4 +202,35 @@ int is_symbol_being_created(char *input)
     if (strchr(input, '=') != NULL)
         return true;
     return false;
+}
+
+// return 1 if type found in input, otherwise -1
+int derive_type(char *input, OUT char type[])
+{
+    int types_cnt = sizeof(symbol_types) / sizeof(symbol_types[0]);
+
+    // TODO
+    // obviously, we need some sort of a map here, but C doesn't provide one
+    for (int i = 0; i < types_cnt; i++) {
+        char *t = symbol_types[i];
+        if (strstr(input, t) != NULL) {
+            strncpy(type, t, strlen(t));
+            type[strlen(t)] = '\0';
+            return 1;
+        }
+    }
+    return -1;
+}
+
+void derive_name(char *input, char *type, OUT char *name)
+{
+    int start, end, i, j;
+
+    start = strstr(input, type)-input + strlen(type)+1;
+    for (end = start; input[end+1] != ' '; end++)
+        ;
+
+    for (i=start, j=0; i <= end; i++, j++)
+        name[j] = input[i];
+    name[j] = '\0';
 }
