@@ -10,6 +10,7 @@
 
 int is_symbol_requested(char*);
 int is_symbol_being_created(char*);
+int get_symbol_type(char*, OUT char**);
 int derive_type(char*, OUT char[]);
 void derive_name(char*, char*, OUT char*);
 
@@ -26,12 +27,10 @@ Symbol symbols[100];
 char skel[] =
 "#include <tcclib.h>\n"
 "\n"
-"%s"
-"\n"
 "int main()\n"
 "{\n"
 "    %s\n"     
-""
+"\n"
 "    return 0;\n"
 "}";
 
@@ -56,32 +55,8 @@ void init_tcc(TCCState **tcc)
     tcc_set_output_type(*tcc, TCC_OUTPUT_MEMORY);
 }
 
-void register_symbol(char name[], char type[])
-{
-    symbols[symbols_cnt] = (Symbol){0};
 
-    strncpy(symbols[symbols_cnt].name, name, strlen(name));
-    symbols[symbols_cnt].name[strlen(name)] = '\0';
-
-    strncpy(symbols[symbols_cnt].type, type, strlen(type));
-    symbols[symbols_cnt].type[strlen(type)] = '\0';
-
-    symbols_cnt++;
-}
-
-int get_symbol_type(char *name, OUT char **type)
-{
-    // TODO
-    // we definitely need some sort of a map here
-    for (int i = 0; i < symbols_cnt; i++) {
-        if (strcmp(symbols[i].name, name) == 0) {
-            *type = symbols[i].type;
-            return 1;
-        }
-    }
-    return -1;
-}
-
+// TODO: make this function free from the new symbols creation process
 // symbol -- add new symbol to the top of the program, or leave empty;
 // stmt   -- statement to be executed.
 int compile_program(TCCState *tcc, char *symbol, char *stmt)
@@ -103,23 +78,8 @@ int compile_program(TCCState *tcc, char *symbol, char *stmt)
     return 0;
 }
 
-// TODO
-// 1) started implementation of new symbols definition feature:
-// for now, only string symbols can be handled properly.
-// 2) error containing code can be included into 'skel',
-// so that also needs to be handled
 int main(int argc, char **argv)
 {
-    // TODO
-    // yet another weird stuff: in derive_type, the sizeof func with found type string passed works in an unexpected way
-    // UPD: the issue was due to the using sizeof instead of strlen...
-    /* register_symbol("var", "int"); */
-    /* printf("name: %s, type: %s\n", symbols[symbols_cnt-1].name, symbols[symbols_cnt-1].type); */
-    /* char type[50]; */
-    /* derive_type("char* a = 69;", type); */
-    /* printf("%s\n", type); */
-    /* return 0; */
-
     TCCState *tcc;
     char input[100];
     int (*inner_main)();
@@ -129,19 +89,16 @@ int main(int argc, char **argv)
 
     while (1) {
         prompt();
-        // TODO
-        // factor out
+        // TODO: factor out
         fgets(input, sizeof(input), stdin);
         if (strcmp(input, "bye\n") == 0)
             break;
 
-        // TODO: refactor so that new vars stored in the main func
-        // check if user asks for an existing symbol
+        // TODO: refactor so that temporarly printf is embedded to the main func to print the requested variable
         if (is_symbol_requested(input)) {
             input[strlen(input)-1] = '\0'; // exclude newln char
                                            
-            // TODO
-            // well, might there be a better way to do this?
+            // TODO: might there be a better way to do this?
             char *type;
             if (get_symbol_type(input, &type) == -1) {
                 printf("ERROR: %s not found\n", input);
@@ -158,6 +115,7 @@ int main(int argc, char **argv)
             continue;
         }
 
+        // TODO: refactor so that new variable is stored in the main function
         if (is_symbol_being_created(input)) {
             char type[20];
             char name[50];
@@ -188,24 +146,53 @@ int main(int argc, char **argv)
     return 0;
 }
 
-// define input without a terminating semicolon as a request for a symbol
-int is_symbol_requested(char *input)
+/* add new symbol to the global 'symbols' array */
+void register_symbol(char name[], char type[])
 {
-    if (input[strlen(input)-2] != ';')
+    symbols[symbols_cnt] = (Symbol){0};
+
+    strncpy(symbols[symbols_cnt].name, name, strlen(name));
+    symbols[symbols_cnt].name[strlen(name)] = '\0';
+
+    strncpy(symbols[symbols_cnt].type, type, strlen(type));
+    symbols[symbols_cnt].type[strlen(type)] = '\0';
+
+    symbols_cnt++;
+}
+
+/* return variable's type saved in the 'symbols' array by the provided name */
+int get_symbol_type(char *name, OUT char **type)
+{
+    // TODO
+    // we definitely need some sort of a map here
+    for (int i = 0; i < symbols_cnt; i++) {
+        if (strcmp(symbols[i].name, name) == 0) {
+            *type = symbols[i].type;
+            return 1;
+        }
+    }
+    return -1;
+}
+
+/* request for a symbol is defined as a statement without a terminating semicolon */
+int is_symbol_requested(char *stmt)
+{
+    if (stmt[strlen(stmt)-2] != ';')
         return true;
     return false;
 }
 
-// for now, define an input containing the "=" token as a symbol creation request
-int is_symbol_being_created(char *input)
+/* request for a symbol creation is defined as a statement containing the "=" token */
+int is_symbol_being_created(char *stmt)
 {
-    if (strchr(input, '=') != NULL)
+    if (strchr(stmt, '=') != NULL)
         return true;
     return false;
 }
 
-// return 1 if type found in input, otherwise -1
-int derive_type(char *input, OUT char type[])
+/* derive type from the statement containing varialbe definition;
+   return 1 if type found, otherwise -1 */
+int derive_type(char *stmt, OUT char type[])
 {
     int types_cnt = sizeof(symbol_types) / sizeof(symbol_types[0]);
 
@@ -213,7 +200,7 @@ int derive_type(char *input, OUT char type[])
     // obviously, we need some sort of a map here, but C doesn't provide one
     for (int i = 0; i < types_cnt; i++) {
         char *t = symbol_types[i];
-        if (strstr(input, t) != NULL) {
+        if (strstr(stmt, t) != NULL) {
             strncpy(type, t, strlen(t));
             type[strlen(t)] = '\0';
             return 1;
@@ -222,15 +209,17 @@ int derive_type(char *input, OUT char type[])
     return -1;
 }
 
-void derive_name(char *input, char *type, OUT char *name)
+/* derive name from the statement containing varialbe definition;
+   variable's type must be provided */
+void derive_name(char *stmt, char *type, OUT char *name)
 {
     int start, end, i, j;
 
-    start = strstr(input, type)-input + strlen(type)+1;
-    for (end = start; input[end+1] != ' '; end++)
+    start = strstr(stmt, type)-stmt + strlen(type)+1;
+    for (end = start; stmt[end+1] != ' '; end++)
         ;
 
     for (i=start, j=0; i <= end; i++, j++)
-        name[j] = input[i];
+        name[j] = stmt[i];
     name[j] = '\0';
 }
