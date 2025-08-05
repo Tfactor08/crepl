@@ -4,7 +4,8 @@ add features:
         --- functions
     --- perform calls of existing functions;
     --- handle and ouptut errors in input code;
-    --- print existing vars without calling printf.
+    --- print existing vars without calling printf;
+    --- make the program string's size dynamic.
 
 Seems like we have to refuse defining new variables as global definitions since their initializers have to be constant.
 E.g. atm, we can't refer to existing vars while initializing new ones (i.e. int b = a;).

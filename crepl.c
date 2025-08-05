@@ -13,6 +13,8 @@ int is_symbol_being_created(char*);
 int get_symbol_type(char*, OUT char**);
 int derive_type(char*, OUT char[]);
 void derive_name(char*, char*, OUT char*);
+void add_var_to_program(char[]);
+void register_symbol(char name[], char type[]);
 
 typedef struct {
     char name[100];
@@ -21,18 +23,17 @@ typedef struct {
 
 char *symbol_types[] = {"int", "char*"}; // pointer types must be declared exactly like this
 size_t symbols_cnt = 0;
-char program[300];
 Symbol symbols[100];
 
-char skel[] =
+char program[1024] =
 "#include <tcclib.h>\n"
 "\n"
 "int main()\n"
 "{\n"
-"    %s\n"     
+"\t%s"
 "\n"
-"    return 0;\n"
-"}";
+"\treturn 0;\n"
+"}\n";
 
 void handle_error(void *opaque, const char *msg)
 {
@@ -55,22 +56,9 @@ void init_tcc(TCCState **tcc)
     tcc_set_output_type(*tcc, TCC_OUTPUT_MEMORY);
 }
 
-
 // TODO: make this function free from the new symbols creation process
-// symbol -- add new symbol to the top of the program, or leave empty;
-// stmt   -- statement to be executed.
-int compile_program(TCCState *tcc, char *symbol, char *stmt)
+int compile_program(TCCState *tcc)
 {
-    if (strcmp(symbol, "")) {
-        char tmp[200];
-        strcat(symbol, "%s"); // for future symbols
-        sprintf(tmp, skel, symbol, "%s");
-        strcpy(skel, tmp);
-    }
-
-    // maybe "%s" istead of ""?
-    sprintf(program, skel, "", stmt);
-
     if (tcc_compile_string(tcc, program) == -1)
         return 1;
     if (tcc_relocate(tcc) < 0)
@@ -84,9 +72,6 @@ int main(int argc, char **argv)
     char input[100];
     int (*inner_main)();
 
-    init_tcc(&tcc);
-    compile_program(tcc, "", "");
-
     while (1) {
         prompt();
         // TODO: factor out
@@ -98,20 +83,39 @@ int main(int argc, char **argv)
         if (is_symbol_requested(input)) {
             input[strlen(input)-1] = '\0'; // exclude newln char
                                            
-            // TODO: might there be a better way to do this?
             char *type;
             if (get_symbol_type(input, &type) == -1) {
                 printf("ERROR: %s not found\n", input);
                 continue;
             }
-            if (strcmp(type, "char*") == 0) {
-                char **var = tcc_get_symbol(tcc, input);
-                printf("%s\n", *var);
+
+            char temp[1024];
+            char printf_stmt[256];
+            char *specifier;
+
+            if (strcmp(type, "int") == 0)
+                specifier = "%d";
+            else if (strcmp(type, "char*") == 0)
+                specifier = "%s";
+
+            snprintf(printf_stmt, sizeof(printf_stmt), "printf(\"%s\\n\", %s);\n", specifier, input);
+            snprintf(temp, sizeof(temp), program, printf_stmt);
+            printf("%s", temp);
+
+            // TODO: factor out
+            {
+                init_tcc(&tcc);
+                if (tcc_compile_string(tcc, temp) == -1)
+                    return 1;
+                if (tcc_relocate(tcc) < 0)
+                    return 1;
+                inner_main = tcc_get_symbol(tcc, "main");
+                if (!inner_main)
+                    return 1;
+
+                inner_main();
             }
-            else if (strcmp(type, "int") == 0) {
-                int *var = tcc_get_symbol(tcc, input);
-                printf("%d\n", *var);
-            }
+
             continue;
         }
 
@@ -124,15 +128,13 @@ int main(int argc, char **argv)
             derive_name(input, type, name);
 
             register_symbol(name, type);
-
-            init_tcc(&tcc);
-            compile_program(tcc, input, "");
+            add_var_to_program(input);
 
             continue;
         }
 
         init_tcc(&tcc);
-        compile_program(tcc, "", input);
+        compile_program(tcc);
 
         inner_main = tcc_get_symbol(tcc, "main");
         if (!inner_main)
@@ -144,6 +146,25 @@ int main(int argc, char **argv)
     tcc_delete(tcc);
 
     return 0;
+}
+
+/* add variable definition to the program's main function so that it can be referred later */
+void add_var_to_program(char stmt[])
+{
+    // append "%s" to the stmt for future variables
+    char modified_str[strlen(stmt) + strlen("\t%s")+1];
+    strcpy(modified_str, stmt);
+    strcat(modified_str, "\t%s");
+
+    char temp[1024];
+    snprintf(temp, sizeof(temp), program, modified_str);
+    strcpy(program, temp);
+}
+
+/* embed temporarly printf to the main func to print the existing variable */
+void print_existing_var(char name[])
+{
+
 }
 
 /* add new symbol to the global 'symbols' array */
