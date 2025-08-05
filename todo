@@ -4,4 +4,13 @@ add features:
         --- functions
     --- perform calls of existing functions;
     --- handle and ouptut errors in input code;
-    --- print experssions without calling printf.
+    --- print existing vars without calling printf.
+
+Seems like we have to refuse defining new variables as global definitions since their initializers have to be constant.
+E.g. atm, we can't refer to existing vars while initializing new ones (i.e. int b = a;).
+So, it's best to define new variables in the main func.
+But it makes it harder to keep track of them since tcc's get_ and set_symbol work only with global symbols.
+So, it seems like the only way to achieve printing existing vars is by embedding temporarly printf to the code to be run.
+The only problem is to get the type of the var, but we already have mechanism to derive type from the statement string.
+
+Also, it's logical that the only code that has to be embedded to the program's skel is symbol definitions (vars and funcs).
