@@ -21,7 +21,7 @@ typedef struct {
     char type[50];
 } Symbol;
 
-char *symbol_types[] = {"int", "char*"}; // pointer types must be declared exactly like this
+char *symbol_types[] = {"int", "char", "char*"}; // pointer types must be declared exactly like this
 size_t symbols_cnt = 0;
 Symbol symbols[100];
 
@@ -79,7 +79,6 @@ int main(int argc, char **argv)
         if (strcmp(input, "bye\n") == 0)
             break;
 
-        // TODO: refactor so that temporarly printf is embedded to the main func to print the requested variable
         if (is_symbol_requested(input)) {
             input[strlen(input)-1] = '\0'; // exclude newln char
                                            
@@ -97,10 +96,11 @@ int main(int argc, char **argv)
                 specifier = "%d";
             else if (strcmp(type, "char*") == 0)
                 specifier = "%s";
+            else if (strcmp(type, "char") == 0)
+                specifier = "%c";
 
             snprintf(printf_stmt, sizeof(printf_stmt), "printf(\"%s\\n\", %s);\n", specifier, input);
             snprintf(temp, sizeof(temp), program, printf_stmt);
-            printf("%s", temp);
 
             // TODO: factor out
             {
@@ -119,7 +119,6 @@ int main(int argc, char **argv)
             continue;
         }
 
-        // TODO: refactor so that new variable is stored in the main function
         if (is_symbol_being_created(input)) {
             char type[20];
             char name[50];
@@ -133,14 +132,25 @@ int main(int argc, char **argv)
             continue;
         }
 
-        init_tcc(&tcc);
-        compile_program(tcc);
+        // not a symbol creation or reqest for a symbol
+        else {
+            char temp[1024];
+            snprintf(temp, sizeof(temp), program, input);
 
-        inner_main = tcc_get_symbol(tcc, "main");
-        if (!inner_main)
-            return 1;
+            // TODO: factor out
+            {
+                init_tcc(&tcc);
+                if (tcc_compile_string(tcc, temp) == -1)
+                    continue;
+                if (tcc_relocate(tcc) < 0)
+                    return 1;
+                inner_main = tcc_get_symbol(tcc, "main");
+                if (!inner_main)
+                    return 1;
 
-        inner_main();
+                inner_main();
+            }
+        }
     }
 
     tcc_delete(tcc);
