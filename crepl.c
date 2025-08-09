@@ -1,27 +1,9 @@
-#include <stdlib.h>
-#include <stdio.h>
-#include <string.h>
-#include "libtcc.h"
+#include "crepl.h"
 
-#define OUT
+extern TCCState *tcc;
 
-#define false 0
-#define true  1
-
-int is_symbol_requested(char*);
-int is_symbol_being_created(char*);
-int get_symbol_type(char*, OUT char**);
-int derive_type(char*, OUT char[]);
-void derive_name(char*, char*, OUT char*);
-void add_var_to_program(char[]);
-void register_symbol(char name[], char type[]);
-
-typedef struct {
-    char name[100];
-    char type[50];
-} Symbol;
-
-char *symbol_types[] = {"int", "char", "char*"}; // pointer types must be declared exactly like this
+// order matters! (unfortunately)
+char *symbol_types[] = {"int", "char*", "char"}; // pointer types must be declared exactly like here
 size_t symbols_cnt = 0;
 Symbol symbols[100];
 
@@ -35,91 +17,27 @@ char program[1024] =
 "\treturn 0;\n"
 "}\n";
 
-void handle_error(void *opaque, const char *msg)
-{
-    fprintf(opaque, "%s\n", msg);
-}
-
-void prompt()
-{
-    printf(">>> ");
-}
-
-void init_tcc(TCCState **tcc)
-{
-    *tcc = tcc_new(); // make the provided pointer point to a new tcc object
-    if (!*tcc) {
-        fprintf(stderr, "Could not create tcc state\n");
-        exit(1);
-    }
-    tcc_set_error_func(*tcc, stderr, handle_error);
-    tcc_set_output_type(*tcc, TCC_OUTPUT_MEMORY);
-}
-
-// TODO: make this function free from the new symbols creation process
-int compile_program(TCCState *tcc)
-{
-    if (tcc_compile_string(tcc, program) == -1)
-        return 1;
-    if (tcc_relocate(tcc) < 0)
-        return 1;
-    return 0;
-}
-
 int main(int argc, char **argv)
 {
-    TCCState *tcc;
     char input[100];
-    int (*inner_main)();
 
     while (1) {
-        prompt();
-        // TODO: factor out
-        fgets(input, sizeof(input), stdin);
-        if (strcmp(input, "bye\n") == 0)
+        if (prompt(input, sizeof(input)) == -1)
             break;
 
         if (is_symbol_requested(input)) {
             input[strlen(input)-1] = '\0'; // exclude newln char
-                                           
-            char *type;
-            if (get_symbol_type(input, &type) == -1) {
-                printf("ERROR: %s not found\n", input);
+
+            char temp_program[1024];
+            char *var_name = input;
+            if (embed_print_stmt(var_name, sizeof(temp_program), temp_program) == -1)
                 continue;
-            }
 
-            char temp[1024];
-            char printf_stmt[256];
-            char *specifier;
-
-            if (strcmp(type, "int") == 0)
-                specifier = "%d";
-            else if (strcmp(type, "char*") == 0)
-                specifier = "%s";
-            else if (strcmp(type, "char") == 0)
-                specifier = "%c";
-
-            snprintf(printf_stmt, sizeof(printf_stmt), "printf(\"%s\\n\", %s);\n", specifier, input);
-            snprintf(temp, sizeof(temp), program, printf_stmt);
-
-            // TODO: factor out
-            {
-                init_tcc(&tcc);
-                if (tcc_compile_string(tcc, temp) == -1)
-                    return 1;
-                if (tcc_relocate(tcc) < 0)
-                    return 1;
-                inner_main = tcc_get_symbol(tcc, "main");
-                if (!inner_main)
-                    return 1;
-
-                inner_main();
-            }
-
+            compile_program_and_run(temp_program);
             continue;
         }
 
-        if (is_symbol_being_created(input)) {
+        else if (is_symbol_being_created(input)) {
             char type[20];
             char name[50];
 
@@ -134,26 +52,14 @@ int main(int argc, char **argv)
 
         // not a symbol creation or reqest for a symbol
         else {
-            char temp[1024];
-            snprintf(temp, sizeof(temp), program, input);
-
-            // TODO: factor out
-            {
-                init_tcc(&tcc);
-                if (tcc_compile_string(tcc, temp) == -1)
-                    continue;
-                if (tcc_relocate(tcc) < 0)
-                    return 1;
-                inner_main = tcc_get_symbol(tcc, "main");
-                if (!inner_main)
-                    return 1;
-
-                inner_main();
-            }
+            char temp_program[1024];
+            snprintf(temp_program, sizeof(temp_program), program, input);
+            compile_program_and_run(temp_program);
         }
     }
 
-    tcc_delete(tcc);
+    if (tcc)
+        tcc_delete(tcc);
 
     return 0;
 }
@@ -171,10 +77,29 @@ void add_var_to_program(char stmt[])
     strcpy(program, temp);
 }
 
-/* embed temporarly printf to the main func to print the existing variable */
-void print_existing_var(char name[])
+/* embed printf to the temporarly program to print the existing variable called 'name' */
+int embed_print_stmt(char name[], int temp_size, OUT char temp[])
 {
+    char *type;
+    if (get_symbol_type(name, &type) == -1) {
+        printf("ERROR: %s not found\n", name);
+        return -1;
+    }
 
+    char printf_stmt[256];
+    char *specifier;
+
+    if (strcmp(type, "int") == 0)
+        specifier = "%d";
+    else if (strcmp(type, "char*") == 0)
+        specifier = "%s";
+    else if (strcmp(type, "char") == 0)
+        specifier = "%c";
+
+    snprintf(printf_stmt, sizeof(printf_stmt), "printf(\"%s\\n\", %s);\n", specifier, name);
+    snprintf(temp, temp_size, program, printf_stmt);
+
+    return 1;
 }
 
 /* add new symbol to the global 'symbols' array */
@@ -253,4 +178,14 @@ void derive_name(char *stmt, char *type, OUT char *name)
     for (i=start, j=0; i <= end; i++, j++)
         name[j] = stmt[i];
     name[j] = '\0';
+}
+
+// TODO: add EOF as exit indicator
+int prompt(char input[], int size)
+{
+    printf(">>> ");
+    fgets(input, size, stdin);
+    if (strcmp(input, "bye\n") == 0)
+        return -1;
+    return 1;
 }
